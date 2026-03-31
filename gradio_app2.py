@@ -23,6 +23,18 @@ FIXED_SECONDS = 30.0
 MAX_GRADIO_CANDIDATES = 32
 GRADIO_AUDIO_COLS_PER_ROW = 8
 
+def _checkpoints_in_dir(path: str) -> list[str]:
+    candidates = sorted(
+        [
+            *Path(path).glob("**/*.pt"),
+            *Path(path).glob("**/*.safetensors"),
+        ]
+    )
+    if not candidates:
+        return []
+    return list(map(str, candidates))
+
+
 
 def _default_checkpoint() -> str:
     candidates = sorted(
@@ -281,7 +293,7 @@ def _run_generation(
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_paths: list[str] = []
     for i, audio in enumerate(result.audios, start=1):
         out_path = save_wav(
@@ -319,12 +331,16 @@ def _clear_runtime_cache() -> str:
 
 def build_ui(args: argparse.Namespace) -> gr.Blocks:
     default_checkpoint = args.checkpoint if args.checkpoint else _default_checkpoint()
+    checkpoints = []
     default_output_dir = args.output_dir
     default_model_device = _default_model_device()
     default_codec_device = _default_codec_device()
     device_choices = list_available_runtime_devices()
     model_precision_choices = _precision_choices_for_device(default_model_device)
     codec_precision_choices = _precision_choices_for_device(default_codec_device)
+    
+    if Path(default_output_dir).is_dir():
+        checkpoints = _checkpoints_in_dir(default_checkpoint)
 
     with gr.Blocks(title="Irodori-TTS Gradio") as demo:
         gr.Markdown("# Irodori-TTS Inference (Cached Runtime)")
@@ -333,11 +349,20 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
         )
 
         with gr.Row():
-            checkpoint = gr.Textbox(
-                label="Checkpoint (.pt/.safetensors or HF repo id)",
-                value=default_checkpoint,
-                scale=4,
-            )
+            if len(checkpoints) > 0:
+                checkpoint = gr.Dropdown(
+                    label="Checkpoint",
+                    choices=checkpoints,
+                    value=checkpoints[0],
+                    scale=4,
+                )
+            else:
+                checkpoint = gr.Textbox(
+                    label="Checkpoint (.pt/.safetensors or HF repo id)",
+                    value=default_checkpoint,
+                    scale=4,
+                )
+            
             model_device = gr.Dropdown(
                 label="Model Device",
                 choices=device_choices,
@@ -511,7 +536,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gradio app for Irodori-TTS with cached runtime.")
-    parser.add_argument("--checkpoint", default=None, help="model path (.pt/.safetensors)")
+    parser.add_argument("--checkpoint", default=None, help="model path (.pt/.safetensors) or model directory")
     parser.add_argument("--output-dir", default="gradio_outputs", help="output directory (default: gradio_outputs)")
     parser.add_argument("--server-name", default="127.0.0.1")
     parser.add_argument("--server-port", type=int, default=7860)
