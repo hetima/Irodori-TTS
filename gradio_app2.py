@@ -23,6 +23,10 @@ FIXED_SECONDS = 30.0
 MAX_GRADIO_CANDIDATES = 32
 GRADIO_AUDIO_COLS_PER_ROW = 8
 
+def _filename_prefix(model: str) -> str:
+    name = Path(model).name
+    return name.split("_")[0]
+
 def _checkpoints_in_dir(path: str) -> list[str]:
     candidates = sorted(
         [
@@ -202,6 +206,7 @@ def _run_generation(
     speaker_kv_min_t_raw: str,
     speaker_kv_max_layers_raw: str,
     output_dir: str,
+    filename_prefix: str,
 ) -> tuple[object, ...]:
     def stdout_log(msg: str) -> None:
         print(msg, flush=True)
@@ -222,6 +227,9 @@ def _run_generation(
         raise ValueError("num_candidates must be >= 1.")
     if requested_candidates > MAX_GRADIO_CANDIDATES:
         raise ValueError(f"num_candidates must be <= {MAX_GRADIO_CANDIDATES}.")
+    
+    if not filename_prefix:
+        filename_prefix = _filename_prefix(checkpoint)
 
     cfg_scale = _parse_optional_float(cfg_scale_raw, "cfg_scale")
     truncation_factor = _parse_optional_float(truncation_factor_raw, "truncation_factor")
@@ -297,7 +305,7 @@ def _run_generation(
     out_paths: list[str] = []
     for i, audio in enumerate(result.audios, start=1):
         out_path = save_wav(
-            out_dir / f"sample_{stamp}_{i:03d}.wav",
+            out_dir / f"{filename_prefix}_{stamp}_{i:03d}.wav",
             audio.float(),
             result.sample_rate,
         )
@@ -333,6 +341,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
     default_checkpoint = args.checkpoint if args.checkpoint else _default_checkpoint()
     checkpoints = []
     default_output_dir = args.output_dir
+    default_prefix = args.output_prefix
     default_model_device = _default_model_device()
     default_codec_device = _default_codec_device()
     device_choices = list_available_runtime_devices()
@@ -451,6 +460,11 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                 speaker_kv_max_layers_raw = gr.Textbox(
                     label="Speaker KV Max Layers (optional)", value=""
                 )
+        filename_prefix = gr.Textbox(
+            label="File name prefix (If left blank, use the model name)",
+            value=default_prefix,
+            scale=4,
+        )
 
         generate_btn = gr.Button("Generate", variant="primary")
 
@@ -507,6 +521,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                 speaker_kv_min_t_raw,
                 speaker_kv_max_layers_raw,
                 output_dir,
+                filename_prefix,
             ],
             outputs=[*out_audios, out_log, out_timing],
         )
@@ -538,6 +553,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Gradio app for Irodori-TTS with cached runtime.")
     parser.add_argument("--checkpoint", default=None, help="model path (.pt/.safetensors) or model directory")
     parser.add_argument("--output-dir", default="gradio_outputs", help="output directory (default: gradio_outputs)")
+    parser.add_argument("--output-prefix", default="sample", help="output file name prefix (default: sample)")
     parser.add_argument("--server-name", default="127.0.0.1")
     parser.add_argument("--server-port", type=int, default=7860)
     parser.add_argument("--share", action="store_true")
